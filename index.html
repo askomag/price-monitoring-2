@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Мониторинг конкурентов — Облачная версия</title>
+    <style>
+        * { box-sizing: border-box; font-family: system-ui, sans-serif; }
+        body { background: #f0f2f5; margin: 0; padding: 20px; }
+        .app { max-width: 1600px; margin: 0 auto; }
+        .managers-row { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; margin-bottom: 28px; }
+        .manager-card { background: white; border-radius: 20px; padding: 16px 28px; text-align: center; cursor: pointer; transition: 0.3s; box-shadow: 0 2px 8px rgba(0,0,0,0.08); border: 2px solid transparent; min-width: 140px; }
+        .manager-card.active { border-color: #2563eb; background: #eff6ff; }
+        .manager-card:hover { transform: scale(1.08); background: #dbeafe; }
+        .manager-name { font-size: 20px; font-weight: 700; }
+        .subprojects-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 24px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px; max-height: 200px; overflow-y: auto; }
+        .subproject-btn { background: #f1f5f9; border: none; padding: 10px 24px; border-radius: 40px; font-weight: 600; cursor: pointer; }
+        .subproject-btn.active { background: #2563eb; color: white; }
+        .card { background: white; border-radius: 24px; padding: 24px; margin-bottom: 28px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+        .form-row { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; margin-bottom: 20px; }
+        .input-group { flex: 1; min-width: 150px; }
+        select, input { width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 16px; }
+        button { background: #2563eb; color: white; border: none; padding: 10px 20px; border-radius: 40px; cursor: pointer; }
+        table { width: 100%; border-collapse: collapse; background: #f8fafc; }
+        th, td { padding: 12px; text-align: center; border-bottom: 1px solid #e2e8f0; }
+        .good { background: #d1fae5; color: #065f46; }
+        .bad { background: #fee2e2; color: #991b1b; }
+        .summary-stats { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+        .stat-card { background: #f1f5f9; border-radius: 20px; padding: 12px 24px; text-align: center; flex: 1; }
+        .stat-number { font-size: 28px; font-weight: 800; }
+        .footer { text-align: center; color: #475569; margin-top: 20px; }
+        @media (max-width: 700px) { .form-row { flex-direction: column; } }
+    </style>
+</head>
+<body>
+<div class="app">
+    <h1>📊 Мониторинг конкурентов (общая база)</h1>
+    <p style="color:#334155">Все менеджеры видят актуальные цены и могут их редактировать</p>
+
+    <div class="managers-row" id="managersRow"></div>
+
+    <div class="card">
+        <h2>⚙️ Управление</h2>
+        <div class="import-area">
+            <strong>📤 Данные синхронизируются с Google Sheets</strong><br>
+            <span id="syncStatus">🟢 Подключение...</span>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>📁 Проекты <span id="projectCount"></span></h2>
+        <div class="subprojects-row" id="subprojectsRow"></div>
+    </div>
+
+    <div class="card">
+        <h2 id="managerTitle">👤 Ильяс</h2>
+        <div class="form-row">
+            <div class="input-group"><label>📌 Модель</label><select id="modelSelect"></select></div>
+            <div class="input-group"><label>💰 Наша цена (₽)</label><input type="number" id="ourPrice" step="1"></div>
+            <div class="input-group"><label>🏪 Конкурент 1</label><input type="number" id="comp1" step="1"></div>
+            <div class="input-group"><label>🏪 Конкурент 2</label><input type="number" id="comp2" step="1"></div>
+            <div class="input-group"><label>🏪 Конкурент 3</label><input type="number" id="comp3" step="1"></div>
+            <div class="input-group"><button id="saveBtn">💾 Сохранить</button></div>
+        </div>
+        <div id="autoDiff" style="font-size:13px; background:#f1f5f9; padding:10px; border-radius:14px;"></div>
+    </div>
+
+    <div class="card">
+        <h2>📋 Модели проекта <span id="currentProjectName"></span></h2>
+        <div style="overflow-x:auto; max-height:500px;">
+            <table id="managerTable"><thead><tr><th>Модель</th><th>Наша цена</th><th>К1</th><th>К2</th><th>К3</th><th>% К1</th><th>% К2</th><th>% К3</th><th></th></tr></thead><tbody id="managerTableBody"></tbody></table>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>🏆 ОБЩИЙ ОТЧЁТ (все менеджеры)</h2>
+        <div class="summary-stats" id="summaryStats"></div>
+        <div style="overflow-x:auto; max-height:400px;">
+            <table id="summaryTable"><thead><tr><th>Менеджер</th><th>Проект</th><th>Модель</th><th>Наша цена</th><th>Средняя конкурентов</th><th>Разница %</th><th>Оценка</th></tr></thead><tbody id="summaryBody"></tbody></table>
+        </div>
+    </div>
+    <div class="footer">🔄 Все изменения сохраняются в общей таблице Google Sheets</div>
+</div>
+
+<script>
+    // === НАСТРОЙКА ===
+    // ⚠️ ЗАМЕНИТЕ ЭТУ СТРОКУ НА ВАШ URL ИЗ APPS SCRIPT
+    const API_URL = "https://script.google.com/macros/s/AKfycbyquP5jK8ehAs2-aHVkwtsIANsa4_GF-T8nGvtp7r0lNx9TmpASZtIl9vJMb_E6sSDj8g/exec"; 
+    const MANAGERS_LIST = ["Стас", "Оля", "Ильяс", "Игорь"];
+    
+    let projectModels = {};
+    let priceData = {};
+    let currentManager = "Стас";
+    let currentProject = "";
+
+    async function loadDataFromSheet() {
+        try {
+            const response = await fetch(API_URL);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const rows = await response.json();
+            if (!rows || rows.length < 2) return;
+            const dataRows = rows.slice(1);
+            let newModels = {};
+            let newPrices = {};
+            for(let mgr of MANAGERS_LIST) { newModels[mgr] = {}; newPrices[mgr] = {}; }
+            for(let row of dataRows) {
+                if(row.length < 7) continue;
+                let mgr = row[0];
+                let proj = row[1];
+                let model = row[2];
+                let ourPrice = row[3];
+                let comp1 = row[4];
+                let comp2 = row[5];
+                let comp3 = row[6];
+                if(!MANAGERS_LIST.includes(mgr)) continue;
+                if(!newModels[mgr][proj]) newModels[mgr][proj] = [];
+                if(!newModels[mgr][proj].includes(model)) newModels[mgr][proj].push(model);
+                if(!newPrices[mgr][proj]) newPrices[mgr][proj] = {};
+                newPrices[mgr][proj][model] = {
+                    ourPrice: ourPrice && ourPrice !== "" ? Number(ourPrice) : "",
+                    comp1: comp1 && comp1 !== "" ? Number(comp1) : "",
+                    comp2: comp2 && comp2 !== "" ? Number(comp2) : "",
+                    comp3: comp3 && comp3 !== "" ? Number(comp3) : ""
+                };
+            }
+            for(let mgr in newModels) for(let proj in newModels[mgr]) newModels[mgr][proj].sort();
+            projectModels = newModels;
+            priceData = newPrices;
+            document.getElementById('syncStatus').innerHTML = "🟢 Данные загружены";
+            renderAll();
+        } catch(e) {
+            console.error(e);
+            document.getElementById('syncStatus').innerHTML = "🔴 Ошибка загрузки. Проверьте авторизацию и URL скрипта.";
+        }
+    }
+
+    async function savePriceToSheet(manager, project, model, ourPrice, comp1, comp2, comp3) {
+        try {
+            const payload = [{
+                manager, project, model,
+                ourPrice: ourPrice === '' ? '' : Number(ourPrice),
+                comp1: comp1 === '' ? '' : Number(comp1),
+                comp2: comp2 === '' ? '' : Number(comp2),
+                comp3: comp3 === '' ? '' : Number(comp3),
+                user: localStorage.getItem('userName') || 'anonymous'
+            }];
+            const response = await fetch(API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const result = await response.json();
+            if(result.status === 'ok') {
+                await loadDataFromSheet();
+            } else {
+                alert('Ошибка сохранения: ' + result.message);
+            }
+        } catch(e) {
+            alert('Ошибка соединения: ' + e.message);
+        }
+    }
+
+    function getEntry(manager, project, model) {
+        if(!priceData[manager]?.[project]?.[model]) return { ourPrice: '', comp1: '', comp2: '', comp3: '' };
+        return priceData[manager][project][model];
+    }
+
+    function percentDiff(our, comp) {
+        if(!our || our <= 0 || !comp || comp <= 0) return '';
+        return ((comp - our) / our * 100).toFixed(1);
+    }
+
+    function getRatingClass(p) {
+        if(p === '') return '';
+        let v = parseFloat(p);
+        if(v <= -5) return 'good';
+        if(v >= 5) return 'bad';
+        return 'neutral';
+    }
+
+    function getAllSummaryRows() {
+        let rows = [];
+        for(let mgr of MANAGERS_LIST) {
+            let projects = projectModels[mgr] || {};
+            for(let proj in projects) {
+                for(let model of projects[proj]) {
+                    let entry = getEntry(mgr, proj, model);
+                    let our = entry.ourPrice;
+                    if(!our || our === '') continue;
+                    let comps = [entry.comp1, entry.comp2, entry.comp3].filter(v => v && v > 0);
+                    let avgComp = comps.length ? comps.reduce((a,b)=>a+b,0)/comps.length : our;
+                    let diffPercent = ((our - avgComp) / avgComp) * 100;
+                    let rating = diffPercent <= -5 ? '🏆 Лучше' : (diffPercent <= 5 ? '✅ Норма' : '⚠️ Хуже');
+                    rows.push({ manager: mgr, project: proj, model, ourPrice: our, avgComp, diffPercent, rating });
+                }
+            }
+        }
+        return rows;
+    }
+
+    function renderManagersRow() {
+        let container = document.getElementById('managersRow');
+        container.innerHTML = '';
+        for(let mgr of MANAGERS_LIST) {
+            let card = document.createElement('div');
+            card.className = `manager-card ${currentManager === mgr ? 'active' : ''}`;
+            let projectsCount = Object.keys(projectModels[mgr] || {}).length;
+            let modelsCount = 0;
+            for(let proj in projectModels[mgr]) modelsCount += projectModels[mgr][proj].length;
+            card.innerHTML = `<div class="manager-name">${mgr}</div><div class="manager-projects">${projectsCount} проектов, ${modelsCount} моделей</div>`;
+            card.onclick = () => { currentManager = mgr; let first = Object.keys(projectModels[mgr] || {})[0] || ""; currentProject = first; renderAll(); };
+            container.appendChild(card);
+        }
+    }
+
+    function renderSubprojects() {
+        let container = document.getElementById('subprojectsRow');
+        container.innerHTML = '';
+        let projects = projectModels[currentManager] || {};
+        let projectNames = Object.keys(projects);
+        document.getElementById('projectCount').innerHTML = `(${projectNames.length} проектов)`;
+        if(projectNames.length === 0) { container.innerHTML = '<span>Нет проектов. Загрузите через Excel.</span>'; return; }
+        if(!currentProject || !projects[currentProject]) currentProject = projectNames[0];
+        for(let proj of projectNames) {
+            let btn = document.createElement('button');
+            btn.innerHTML = `${proj} (${projects[proj].length})`;
+            btn.className = `subproject-btn ${currentProject === proj ? 'active' : ''}`;
+            btn.onclick = () => { currentProject = proj; renderAll(); };
+            container.appendChild(btn);
+        }
+    }
+
+    function renderManagerInput() {
+        document.getElementById('managerTitle').innerHTML = `👤 ${currentManager} — ${currentProject}`;
+        document.getElementById('currentProjectName').innerHTML = currentProject;
+        let select = document.getElementById('modelSelect');
+        let models = (projectModels[currentManager]?.[currentProject]) || [];
+        select.innerHTML = '';
+        for(let m of models) { let opt = document.createElement('option'); opt.value = m; opt.textContent = m; select.appendChild(opt); }
+        if(models.length) select.value = models[0];
+        select.onchange = () => loadFormFromModel();
+        loadFormFromModel();
+    }
+
+    function loadFormFromModel() {
+        let model = document.getElementById('modelSelect').value;
+        if(!model || !currentProject) return;
+        let entry = getEntry(currentManager, currentProject, model);
+        document.getElementById('ourPrice').value = entry.ourPrice !== '' ? entry.ourPrice : '';
+        document.getElementById('comp1').value = entry.comp1 !== '' ? entry.comp1 : '';
+        document.getElementById('comp2').value = entry.comp2 !== '' ? entry.comp2 : '';
+        document.getElementById('comp3').value = entry.comp3 !== '' ? entry.comp3 : '';
+        updateInlineDiff();
+    }
+
+    function updateInlineDiff() {
+        let our = parseFloat(document.getElementById('ourPrice').value);
+        let c1 = parseFloat(document.getElementById('comp1').value);
+        let c2 = parseFloat(document.getElementById('comp2').value);
+        let c3 = parseFloat(document.getElementById('comp3').value);
+        let html = '<div style="display:flex; gap:16px;">';
+        if(our && c1) html += `<span>📊 К1: ${percentDiff(our,c1)}%</span>`;
+        if(our && c2) html += `<span>📊 К2: ${percentDiff(our,c2)}%</span>`;
+        if(our && c3) html += `<span>📊 К3: ${percentDiff(our,c3)}%</span>`;
+        if(!our) html = '⬅️ Введите цену';
+        html += '</div>';
+        document.getElementById('autoDiff').innerHTML = html || '—';
+    }
+
+    function renderManagerTable() {
+        let tbody = document.getElementById('managerTableBody');
+        tbody.innerHTML = '';
+        let models = (projectModels[currentManager]?.[currentProject]) || [];
+        for(let model of models) {
+            let entry = getEntry(currentManager, currentProject, model);
+            let our = entry.ourPrice || '';
+            let c1 = entry.comp1 || '';
+            let c2 = entry.comp2 || '';
+            let c3 = entry.comp3 || '';
+            let p1 = percentDiff(our, c1);
+            let p2 = percentDiff(our, c2);
+            let p3 = percentDiff(our, c3);
+            let row = tbody.insertRow();
+            row.insertCell(0).innerText = model;
+            row.insertCell(1).innerText = our;
+            row.insertCell(2).innerText = c1;
+            row.insertCell(3).innerText = c2;
+            row.insertCell(4).innerText = c3;
+            let cell1 = row.insertCell(5); cell1.innerText = p1 ? p1+'%' : '-'; cell1.className = getRatingClass(p1);
+            let cell2 = row.insertCell(6); cell2.innerText = p2 ? p2+'%' : '-'; cell2.className = getRatingClass(p2);
+            let cell3 = row.insertCell(7); cell3.innerText = p3 ? p3+'%' : '-'; cell3.className = getRatingClass(p3);
+            let delBtn = document.createElement('button'); delBtn.textContent = '❌'; delBtn.style.background = '#ef4444';
+            delBtn.onclick = () => savePriceToSheet(currentManager, currentProject, model, '', '', '', '');
+            let cellDel = row.insertCell(8); cellDel.appendChild(delBtn);
+        }
+    }
+
+    function renderSummary() {
+        let rows = getAllSummaryRows();
+        let summaryBody = document.getElementById('summaryBody');
+        summaryBody.innerHTML = '';
+        let better=0, worse=0, total=0;
+        for(let r of rows) {
+            let tr = summaryBody.insertRow();
+            tr.insertCell(0).innerText = r.manager;
+            tr.insertCell(1).innerText = r.project;
+            tr.insertCell(2).innerText = r.model;
+            tr.insertCell(3).innerText = r.ourPrice;
+            tr.insertCell(4).innerText = r.avgComp.toFixed(0);
+            let diffCell = tr.insertCell(5);
+            diffCell.innerText = r.diffPercent.toFixed(1)+'%';
+            diffCell.className = r.diffPercent <= -5 ? 'good' : (r.diffPercent >= 5 ? 'bad' : 'neutral');
+            tr.insertCell(6).innerText = r.rating;
+            if(r.rating.includes('Лучше')) better++;
+            if(r.rating.includes('Хуже')) worse++;
+            total++;
+        }
+        document.getElementById('summaryStats').innerHTML = `
+            <div class="stat-card"><div class="stat-number">🏆 ${better}</div><div>Лучше рынка</div></div>
+            <div class="stat-card"><div class="stat-number">⚠️ ${worse}</div><div>Хуже рынка</div></div>
+            <div class="stat-card"><div class="stat-number">📊 ${total}</div><div>Всего моделей с ценами</div></div>
+            <div class="stat-card"><div class="stat-number">${total ? Math.round((better/total)*100) : 0}%</div><div>доля успеха</div></div>
+        `;
+    }
+
+    function renderAll() {
+        renderManagersRow();
+        renderSubprojects();
+        renderManagerInput();
+        renderManagerTable();
+        renderSummary();
+    }
+
+    document.getElementById('saveBtn').onclick = async () => {
+        let model = document.getElementById('modelSelect').value;
+        if(!model || !currentProject) return;
+        let our = document.getElementById('ourPrice').value;
+        let c1 = document.getElementById('comp1').value;
+        let c2 = document.getElementById('comp2').value;
+        let c3 = document.getElementById('comp3').value;
+        await savePriceToSheet(currentManager, currentProject, model, our, c1, c2, c3);
+    };
+
+    (async () => {
+        let userName = prompt("Введите ваше имя (для истории изменений):", "Менеджер");
+        if(userName) localStorage.setItem('userName', userName);
+        await loadDataFromSheet();
+        setInterval(loadDataFromSheet, 30000);
+    })();
+</script>
+</body>
+</html>
