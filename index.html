@@ -28,6 +28,7 @@
         .summary-stats { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
         .stat-card { background: #f1f5f9; border-radius: 20px; padding: 12px 24px; text-align: center; flex: 1; }
         .stat-number { font-size: 28px; font-weight: 800; }
+        .import-area { border: 2px dashed #cbd5e1; border-radius: 20px; padding: 20px; text-align: center; background: #fefce8; margin-top: 16px; }
         .footer { text-align: center; color: #475569; margin-top: 20px; }
         @media (max-width: 700px) { .form-row { flex-direction: column; } }
     </style>
@@ -42,6 +43,17 @@
     <div class="card">
         <h2>⚙️ Управление</h2>
         <div class="import-area">
+            <strong>📤 Загрузить структуру (Excel или CSV)</strong><br>
+            <small>Формат: колонка A = Менеджер, колонка B = Проект, колонка C = Модель</small><br>
+            <input type="file" id="uploadHits" accept=".xlsx,.xls,.csv" style="margin: 12px auto; width: auto; display: inline-block;">
+            <button id="importHitsBtn" style="background:#0f3b2c;">Загрузить файл</button>
+            <button id="resetHitsBtn" class="btn-secondary" style="margin-left: 8px;">Восстановить пример (Стас)</button>
+            <div class="template-download" style="margin-top:12px;">
+                📥 <a id="downloadTemplateBtn" style="cursor:pointer; color:#2563eb;">Скачать шаблон (CSV)</a>
+            </div>
+            <div id="importStatus" style="margin-top: 8px; font-size: 12px;"></div>
+        </div>
+        <div style="margin-top: 16px;">
             <strong>📤 Данные синхронизируются с Google Sheets</strong><br>
             <span id="syncStatus">🟢 Подключение...</span>
         </div>
@@ -331,6 +343,91 @@
         renderSummary();
     }
 
+    // Импорт структуры из файла
+    function importStructureFromFile(file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const content = e.target.result;
+            const lines = content.split(/\r?\n/);
+            const imported = [];
+            let startLine = 0;
+            if(lines.length > 0 && (lines[0].toLowerCase().includes('менеджер') || lines[0].toLowerCase().includes('проект'))) startLine = 1;
+            for(let i = startLine; i < lines.length; i++) {
+                let line = lines[i].trim();
+                if(!line) continue;
+                let parts;
+                if(line.includes('\t')) parts = line.split('\t');
+                else if(line.includes(',')) parts = line.split(',');
+                else if(line.includes(';')) parts = line.split(';');
+                else continue;
+                if(parts.length >= 3) {
+                    let mgr = parts[0].trim().replace(/^["']|["']$/g, '');
+                    let proj = parts[1].trim().replace(/^["']|["']$/g, '');
+                    let model = parts[2].trim().replace(/^["']|["']$/g, '');
+                    if(MANAGERS_LIST.includes(mgr) && proj && model) {
+                        imported.push({ manager: mgr, project: proj, model: model });
+                    }
+                }
+            }
+            if(imported.length) {
+                rebuildFromData(imported);
+                document.getElementById('importStatus').innerHTML = `✅ Загружено ${imported.length} моделей!`;
+                setTimeout(() => document.getElementById('importStatus').innerHTML = '', 3000);
+            } else {
+                alert('Не найдено данных. Формат: Менеджер,Проект,Модель');
+            }
+        };
+        reader.readAsText(file, 'UTF-8');
+    }
+
+    function rebuildFromData(data) {
+        let newModels = {};
+        for(let mgr of MANAGERS_LIST) newModels[mgr] = {};
+        for(let item of data) {
+            if(!newModels[item.manager][item.project]) newModels[item.manager][item.project] = [];
+            if(!newModels[item.manager][item.project].includes(item.model)) newModels[item.manager][item.project].push(item.model);
+        }
+        projectModels = newModels;
+        // сохраняем структуру в localStorage, чтобы не терять
+        localStorage.setItem('projectModels', JSON.stringify(projectModels));
+        // чистим цены для удалённых моделей
+        let newPriceData = {};
+        for(let mgr of MANAGERS_LIST) {
+            newPriceData[mgr] = {};
+            for(let proj in projectModels[mgr]) {
+                newPriceData[mgr][proj] = {};
+                for(let model of projectModels[mgr][proj]) {
+                    let old = (priceData[mgr]?.[proj]?.[model]) || { ourPrice: '', comp1: '', comp2: '', comp3: '' };
+                    newPriceData[mgr][proj][model] = old;
+                }
+            }
+        }
+        priceData = newPriceData;
+        saveStructureToSheet(); // отправляем в Google Sheets? не обязательно, но можно
+        let first = Object.keys(projectModels[currentManager] || {})[0] || "";
+        currentProject = first;
+        renderAll();
+    }
+
+    function saveStructureToSheet() {
+        // опционально: отправлять структуру в Google Sheets (но можно обойтись без этого)
+        console.log('Структура обновлена локально');
+    }
+
+    function downloadTemplate() {
+        let template = `Стас,Гига,HW50-BP1026
+Стас,Гига,HD70-A929E
+Оля,WB Bera,DS 3200 G
+Ильяс,ПТ Маркет,ПТ-100
+Игорь,Омега,Омега X1`;
+        const blob = new Blob(["\uFEFF" + template], {type: "text/csv;charset=utf-8"});
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = 'template_hits.csv';
+        link.click();
+        URL.revokeObjectURL(link.href);
+    }
+
     document.getElementById('saveBtn').onclick = async () => {
         let model = document.getElementById('modelSelect').value;
         if(!model || !currentProject) return;
@@ -340,10 +437,36 @@
         let c3 = document.getElementById('comp3').value;
         await savePriceToSheet(currentManager, currentProject, model, our, c1, c2, c3);
     };
+    document.getElementById('importHitsBtn').onclick = () => {
+        const fileInput = document.getElementById('uploadHits');
+        if(fileInput.files.length) importStructureFromFile(fileInput.files[0]);
+        else alert("Выберите CSV файл");
+    };
+    document.getElementById('downloadTemplateBtn').onclick = downloadTemplate;
+    document.getElementById('resetHitsBtn').onclick = () => {
+        if(confirm("Восстановить пример? (Стас/Гига/Прайм, Оля/WB Bera)")) {
+            // можно загрузить дефолтную структуру
+            const defaultData = [
+                { manager: "Стас", project: "Гига", model: "HW50-BP1026" },
+                { manager: "Стас", project: "Прайм", model: "CP 6F51LS-08" },
+                { manager: "Оля", project: "WB Bera", model: "DS 3200 G" }
+            ];
+            rebuildFromData(defaultData);
+        }
+    };
 
     (async () => {
         let userName = prompt("Введите ваше имя (для истории изменений):", "Менеджер");
         if(userName) localStorage.setItem('userName', userName);
+        // загружаем сохранённую структуру из localStorage (если есть)
+        const savedModels = localStorage.getItem('projectModels');
+        if(savedModels) {
+            try {
+                projectModels = JSON.parse(savedModels);
+                let first = Object.keys(projectModels[currentManager] || {})[0] || "";
+                currentProject = first;
+            } catch(e) {}
+        }
         await loadDataFromSheet();
         setInterval(loadDataFromSheet, 30000);
     })();
