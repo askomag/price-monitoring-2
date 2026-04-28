@@ -32,6 +32,7 @@
         .footer { text-align: center; color: #475569; margin-top: 20px; }
         @media (max-width: 700px) { .form-row { flex-direction: column; } }
     </style>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 <div class="app">
@@ -47,7 +48,7 @@
             <small>Формат: колонка A = Менеджер, колонка B = Проект, колонка C = Модель</small><br>
             <input type="file" id="uploadHits" accept=".xlsx,.xls,.csv" style="margin: 12px auto; width: auto; display: inline-block;">
             <button id="importHitsBtn" style="background:#0f3b2c;">Загрузить файл</button>
-            <button id="resetHitsBtn" class="btn-secondary" style="margin-left: 8px;">Восстановить пример (Стас)</button>
+            <button id="resetHitsBtn" style="background:#475569; margin-left:8px;">Восстановить пример (Стас)</button>
             <div class="template-download" style="margin-top:12px;">
                 📥 <a id="downloadTemplateBtn" style="cursor:pointer; color:#2563eb;">Скачать шаблон (CSV)</a>
             </div>
@@ -95,26 +96,50 @@
 </div>
 
 <script>
-    // === НАСТРОЙКА ===
-    // ⚠️ ЗАМЕНИТЕ ЭТУ СТРОКУ НА ВАШ URL ИЗ APPS SCRIPT
-    const API_URL = "https://script.google.com/macros/s/AKfycbyquP5jK8ehAs2-aHVkwtsIANsa4_GF-T8nGvtp7r0lNx9TmpASZtIl9vJMb_E6sSDj8g/exec"; 
+    // ================= НАСТРОЙКИ =================
+    const API_URL = "https://script.google.com/macros/s/AKfycbyquP5jK8ehAs2-aHVkwtsIANsa4_GF-T8nGvtp7r0lNx9TmpASZtIl9vJMb_E6sSDj8g/exec"; // ЗАМЕНИТЕ НА РЕАЛЬНЫЙ URL
     const MANAGERS_LIST = ["Стас", "Оля", "Ильяс", "Игорь"];
     
-    let projectModels = {};
-    let priceData = {};
+    let projectModels = {};   // менеджер -> проект -> список моделей
+    let priceData = {};       // менеджер -> проект -> модель -> { ourPrice, comp1, comp2, comp3 }
     let currentManager = "Стас";
     let currentProject = "";
 
-    async function loadDataFromSheet() {
+    // ========== РАБОТА С LOCALSTORAGE (сохранение структуры) ==========
+    function saveStructureToLocal() {
+        localStorage.setItem("projectModels", JSON.stringify(projectModels));
+    }
+
+    function loadStructureFromLocal() {
+        const saved = localStorage.getItem("projectModels");
+        if (saved) {
+            try {
+                const parsed = JSON.parse(saved);
+                // убедимся, что все менеджеры есть
+                for (let mgr of MANAGERS_LIST) {
+                    if (!parsed[mgr]) parsed[mgr] = {};
+                }
+                projectModels = parsed;
+                return true;
+            } catch(e) { console.warn(e); }
+        }
+        // если нет сохранённой структуры, создаём пустую
+        for (let mgr of MANAGERS_LIST) projectModels[mgr] = {};
+        return false;
+    }
+
+    // ========== ЗАГРУЗКА ЦЕН ИЗ GOOGLE SHEETS (без перезаписи структуры) ==========
+    async function loadPricesFromSheet() {
         try {
             const response = await fetch(API_URL);
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const rows = await response.json();
             if (!rows || rows.length < 2) return;
             const dataRows = rows.slice(1);
-            let newModels = {};
+            // Сбросим priceData, но не трогаем projectModels
             let newPrices = {};
-            for(let mgr of MANAGERS_LIST) { newModels[mgr] = {}; newPrices[mgr] = {}; }
+            for(let mgr of MANAGERS_LIST) newPrices[mgr] = {};
+            
             for(let row of dataRows) {
                 if(row.length < 7) continue;
                 let mgr = row[0];
@@ -125,8 +150,6 @@
                 let comp2 = row[5];
                 let comp3 = row[6];
                 if(!MANAGERS_LIST.includes(mgr)) continue;
-                if(!newModels[mgr][proj]) newModels[mgr][proj] = [];
-                if(!newModels[mgr][proj].includes(model)) newModels[mgr][proj].push(model);
                 if(!newPrices[mgr][proj]) newPrices[mgr][proj] = {};
                 newPrices[mgr][proj][model] = {
                     ourPrice: ourPrice && ourPrice !== "" ? Number(ourPrice) : "",
@@ -135,8 +158,6 @@
                     comp3: comp3 && comp3 !== "" ? Number(comp3) : ""
                 };
             }
-            for(let mgr in newModels) for(let proj in newModels[mgr]) newModels[mgr][proj].sort();
-            projectModels = newModels;
             priceData = newPrices;
             document.getElementById('syncStatus').innerHTML = "🟢 Данные загружены";
             renderAll();
@@ -163,7 +184,7 @@
             });
             const result = await response.json();
             if(result.status === 'ok') {
-                await loadDataFromSheet();
+                await loadPricesFromSheet();
             } else {
                 alert('Ошибка сохранения: ' + result.message);
             }
@@ -210,6 +231,7 @@
         return rows;
     }
 
+    // ========== ОТРИСОВКА ==========
     function renderManagersRow() {
         let container = document.getElementById('managersRow');
         container.innerHTML = '';
@@ -220,7 +242,12 @@
             let modelsCount = 0;
             for(let proj in projectModels[mgr]) modelsCount += projectModels[mgr][proj].length;
             card.innerHTML = `<div class="manager-name">${mgr}</div><div class="manager-projects">${projectsCount} проектов, ${modelsCount} моделей</div>`;
-            card.onclick = () => { currentManager = mgr; let first = Object.keys(projectModels[mgr] || {})[0] || ""; currentProject = first; renderAll(); };
+            card.onclick = () => {
+                currentManager = mgr;
+                let first = Object.keys(projectModels[mgr] || {})[0] || "";
+                currentProject = first;
+                renderAll();
+            };
             container.appendChild(card);
         }
     }
@@ -231,13 +258,21 @@
         let projects = projectModels[currentManager] || {};
         let projectNames = Object.keys(projects);
         document.getElementById('projectCount').innerHTML = `(${projectNames.length} проектов)`;
-        if(projectNames.length === 0) { container.innerHTML = '<span>Нет проектов. Загрузите через Excel.</span>'; return; }
-        if(!currentProject || !projects[currentProject]) currentProject = projectNames[0];
+        if(projectNames.length === 0) {
+            container.innerHTML = '<span>Нет проектов. Загрузите через Excel.</span>';
+            return;
+        }
+        if(!currentProject || !projects[currentProject]) {
+            currentProject = projectNames[0];
+        }
         for(let proj of projectNames) {
             let btn = document.createElement('button');
             btn.innerHTML = `${proj} (${projects[proj].length})`;
             btn.className = `subproject-btn ${currentProject === proj ? 'active' : ''}`;
-            btn.onclick = () => { currentProject = proj; renderAll(); };
+            btn.onclick = () => {
+                currentProject = proj;
+                renderAll();
+            };
             container.appendChild(btn);
         }
     }
@@ -248,7 +283,12 @@
         let select = document.getElementById('modelSelect');
         let models = (projectModels[currentManager]?.[currentProject]) || [];
         select.innerHTML = '';
-        for(let m of models) { let opt = document.createElement('option'); opt.value = m; opt.textContent = m; select.appendChild(opt); }
+        for(let m of models) {
+            let opt = document.createElement('option');
+            opt.value = m;
+            opt.textContent = m;
+            select.appendChild(opt);
+        }
         if(models.length) select.value = models[0];
         select.onchange = () => loadFormFromModel();
         loadFormFromModel();
@@ -343,75 +383,84 @@
         renderSummary();
     }
 
-    // Импорт структуры из файла
+    // ========== ИМПОРТ СТРУКТУРЫ ИЗ EXCEL/CSV ==========
+    function parseExcelOrCSV(file, callback) {
+        const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
+        if (isExcel) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: "" });
+                callback(rows);
+            };
+            reader.readAsArrayBuffer(file);
+        } else {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const text = e.target.result;
+                const lines = text.split(/\r?\n/);
+                const rows = lines.map(line => {
+                    let parts;
+                    if (line.includes('\t')) parts = line.split('\t');
+                    else if (line.includes(',')) parts = line.split(',');
+                    else if (line.includes(';')) parts = line.split(';');
+                    else parts = [line];
+                    return parts;
+                });
+                callback(rows);
+            };
+            reader.readAsText(file, 'UTF-8');
+        }
+    }
+
     function importStructureFromFile(file) {
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            const content = e.target.result;
-            const lines = content.split(/\r?\n/);
-            const imported = [];
-            let startLine = 0;
-            if(lines.length > 0 && (lines[0].toLowerCase().includes('менеджер') || lines[0].toLowerCase().includes('проект'))) startLine = 1;
-            for(let i = startLine; i < lines.length; i++) {
-                let line = lines[i].trim();
-                if(!line) continue;
-                let parts;
-                if(line.includes('\t')) parts = line.split('\t');
-                else if(line.includes(',')) parts = line.split(',');
-                else if(line.includes(';')) parts = line.split(';');
-                else continue;
-                if(parts.length >= 3) {
-                    let mgr = parts[0].trim().replace(/^["']|["']$/g, '');
-                    let proj = parts[1].trim().replace(/^["']|["']$/g, '');
-                    let model = parts[2].trim().replace(/^["']|["']$/g, '');
-                    if(MANAGERS_LIST.includes(mgr) && proj && model) {
+        parseExcelOrCSV(file, (rows) => {
+            let imported = [];
+            let startRow = 0;
+            if (rows.length > 0 && rows[0][0] && (String(rows[0][0]).toLowerCase().includes('менеджер') || String(rows[0][1]).toLowerCase().includes('проект'))) {
+                startRow = 1;
+            }
+            for (let i = startRow; i < rows.length; i++) {
+                let row = rows[i];
+                if (row.length >= 3 && row[0] && row[1] && row[2]) {
+                    let mgr = String(row[0]).trim();
+                    let proj = String(row[1]).trim();
+                    let model = String(row[2]).trim();
+                    if (MANAGERS_LIST.includes(mgr) && proj && model) {
                         imported.push({ manager: mgr, project: proj, model: model });
                     }
                 }
             }
-            if(imported.length) {
-                rebuildFromData(imported);
+            if (imported.length > 0) {
+                // Построим новую структуру
+                let newModels = {};
+                for (let mgr of MANAGERS_LIST) newModels[mgr] = {};
+                for (let item of imported) {
+                    if (!newModels[item.manager][item.project]) newModels[item.manager][item.project] = [];
+                    if (!newModels[item.manager][item.project].includes(item.model)) {
+                        newModels[item.manager][item.project].push(item.model);
+                    }
+                }
+                // Сортируем модели
+                for (let mgr in newModels) {
+                    for (let proj in newModels[mgr]) {
+                        newModels[mgr][proj].sort();
+                    }
+                }
+                projectModels = newModels;
+                saveStructureToLocal();
+                // Сбросим текущий проект, если нужно
+                let firstProject = Object.keys(projectModels[currentManager] || {})[0] || "";
+                currentProject = firstProject;
+                renderAll();
                 document.getElementById('importStatus').innerHTML = `✅ Загружено ${imported.length} моделей!`;
                 setTimeout(() => document.getElementById('importStatus').innerHTML = '', 3000);
             } else {
-                alert('Не найдено данных. Формат: Менеджер,Проект,Модель');
+                alert('Не найдено корректных данных. Убедитесь, что файл содержит три колонки: Менеджер, Проект, Модель.');
             }
-        };
-        reader.readAsText(file, 'UTF-8');
-    }
-
-    function rebuildFromData(data) {
-        let newModels = {};
-        for(let mgr of MANAGERS_LIST) newModels[mgr] = {};
-        for(let item of data) {
-            if(!newModels[item.manager][item.project]) newModels[item.manager][item.project] = [];
-            if(!newModels[item.manager][item.project].includes(item.model)) newModels[item.manager][item.project].push(item.model);
-        }
-        projectModels = newModels;
-        // сохраняем структуру в localStorage, чтобы не терять
-        localStorage.setItem('projectModels', JSON.stringify(projectModels));
-        // чистим цены для удалённых моделей
-        let newPriceData = {};
-        for(let mgr of MANAGERS_LIST) {
-            newPriceData[mgr] = {};
-            for(let proj in projectModels[mgr]) {
-                newPriceData[mgr][proj] = {};
-                for(let model of projectModels[mgr][proj]) {
-                    let old = (priceData[mgr]?.[proj]?.[model]) || { ourPrice: '', comp1: '', comp2: '', comp3: '' };
-                    newPriceData[mgr][proj][model] = old;
-                }
-            }
-        }
-        priceData = newPriceData;
-        saveStructureToSheet(); // отправляем в Google Sheets? не обязательно, но можно
-        let first = Object.keys(projectModels[currentManager] || {})[0] || "";
-        currentProject = first;
-        renderAll();
-    }
-
-    function saveStructureToSheet() {
-        // опционально: отправлять структуру в Google Sheets (но можно обойтись без этого)
-        console.log('Структура обновлена локально');
+        });
     }
 
     function downloadTemplate() {
@@ -428,9 +477,51 @@
         URL.revokeObjectURL(link.href);
     }
 
+    function resetToExample() {
+        if (confirm("Восстановить пример структуры (Стас/Гига, Прайм; Оля/WB Bera)?")) {
+            const exampleData = [
+                { manager: "Стас", project: "Гига", model: "HW50-BP1026" },
+                { manager: "Стас", project: "Гига", model: "HD70-A929E" },
+                { manager: "Стас", project: "Прайм", model: "CP 6F51LS-08" },
+                { manager: "Оля", project: "WB Bera", model: "DS 3200 G" }
+            ];
+            let newModels = {};
+            for (let mgr of MANAGERS_LIST) newModels[mgr] = {};
+            for (let item of exampleData) {
+                if (!newModels[item.manager][item.project]) newModels[item.manager][item.project] = [];
+                if (!newModels[item.manager][item.project].includes(item.model)) newModels[item.manager][item.project].push(item.model);
+            }
+            projectModels = newModels;
+            saveStructureToLocal();
+            let firstProject = Object.keys(projectModels[currentManager] || {})[0] || "";
+            currentProject = firstProject;
+            renderAll();
+            document.getElementById('importStatus').innerHTML = `✅ Восстановлен пример.`;
+            setTimeout(() => document.getElementById('importStatus').innerHTML = '', 2000);
+        }
+    }
+
+    // ========== ИНИЦИАЛИЗАЦИЯ ==========
+    (async () => {
+        let userName = prompt("Введите ваше имя (для истории изменений):", "Менеджер");
+        if (userName) localStorage.setItem('userName', userName);
+        
+        // Загружаем структуру из localStorage
+        loadStructureFromLocal();
+        // Загружаем цены из Google Sheets (не трогая структуру)
+        await loadPricesFromSheet();
+        // Устанавливаем первый проект для текущего менеджера
+        let firstProj = Object.keys(projectModels[currentManager] || {})[0] || "";
+        currentProject = firstProj;
+        renderAll();
+        // Периодическое обновление цен (каждые 30 секунд)
+        setInterval(loadPricesFromSheet, 30000);
+    })();
+
+    // Кнопки
     document.getElementById('saveBtn').onclick = async () => {
         let model = document.getElementById('modelSelect').value;
-        if(!model || !currentProject) return;
+        if (!model || !currentProject) return;
         let our = document.getElementById('ourPrice').value;
         let c1 = document.getElementById('comp1').value;
         let c2 = document.getElementById('comp2').value;
@@ -439,37 +530,15 @@
     };
     document.getElementById('importHitsBtn').onclick = () => {
         const fileInput = document.getElementById('uploadHits');
-        if(fileInput.files.length) importStructureFromFile(fileInput.files[0]);
-        else alert("Выберите CSV файл");
+        if (fileInput.files.length) {
+            importStructureFromFile(fileInput.files[0]);
+            fileInput.value = '';
+        } else {
+            alert("Выберите Excel или CSV файл");
+        }
     };
     document.getElementById('downloadTemplateBtn').onclick = downloadTemplate;
-    document.getElementById('resetHitsBtn').onclick = () => {
-        if(confirm("Восстановить пример? (Стас/Гига/Прайм, Оля/WB Bera)")) {
-            // можно загрузить дефолтную структуру
-            const defaultData = [
-                { manager: "Стас", project: "Гига", model: "HW50-BP1026" },
-                { manager: "Стас", project: "Прайм", model: "CP 6F51LS-08" },
-                { manager: "Оля", project: "WB Bera", model: "DS 3200 G" }
-            ];
-            rebuildFromData(defaultData);
-        }
-    };
-
-    (async () => {
-        let userName = prompt("Введите ваше имя (для истории изменений):", "Менеджер");
-        if(userName) localStorage.setItem('userName', userName);
-        // загружаем сохранённую структуру из localStorage (если есть)
-        const savedModels = localStorage.getItem('projectModels');
-        if(savedModels) {
-            try {
-                projectModels = JSON.parse(savedModels);
-                let first = Object.keys(projectModels[currentManager] || {})[0] || "";
-                currentProject = first;
-            } catch(e) {}
-        }
-        await loadDataFromSheet();
-        setInterval(loadDataFromSheet, 30000);
-    })();
+    document.getElementById('resetHitsBtn').onclick = resetToExample;
 </script>
 </body>
 </html>
