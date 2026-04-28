@@ -3,390 +3,538 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Мониторинг конкурентов</title>
-    <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+    <title>Мониторинг конкурентов — общая база</title>
     <style>
-        body { font-family: sans-serif; margin: 20px; background: #f0f2f5; }
-        .card { background: white; border-radius: 20px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-        button, input, select { padding: 8px 12px; margin: 5px; border-radius: 20px; border: 1px solid #ccc; }
-        button { background: #2563eb; color: white; cursor: pointer; }
-        table { border-collapse: collapse; width: 100%; background: white; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        .good { background: #d1fae5; }
-        .bad { background: #fee2e2; }
-        #status { margin: 10px 0; font-weight: bold; }
+        * { box-sizing: border-box; font-family: system-ui, sans-serif; }
+        body { background: #f0f2f5; margin: 0; padding: 20px; }
+        .app { max-width: 1600px; margin: 0 auto; }
+        .managers-row { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; margin-bottom: 28px; }
+        .manager-card { background: white; border-radius: 20px; padding: 16px 28px; text-align: center; cursor: pointer; transition: 0.3s; box-shadow: 0 2px 8px rgba(0,0,0,0.08); border: 2px solid transparent; min-width: 140px; }
+        .manager-card.active { border-color: #2563eb; background: #eff6ff; }
+        .manager-card:hover { transform: scale(1.08); background: #dbeafe; }
+        .manager-name { font-size: 20px; font-weight: 700; }
+        .subprojects-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 24px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px; max-height: 200px; overflow-y: auto; }
+        .subproject-btn { background: #f1f5f9; border: none; padding: 10px 24px; border-radius: 40px; font-weight: 600; cursor: pointer; }
+        .subproject-btn.active { background: #2563eb; color: white; }
+        .card { background: white; border-radius: 24px; padding: 24px; margin-bottom: 28px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+        .form-row { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; margin-bottom: 20px; }
+        .input-group { flex: 1; min-width: 150px; }
+        select, input { width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 16px; }
+        button { background: #2563eb; color: white; border: none; padding: 10px 20px; border-radius: 40px; cursor: pointer; }
+        table { width: 100%; border-collapse: collapse; background: #f8fafc; }
+        th, td { padding: 12px; text-align: center; border-bottom: 1px solid #e2e8f0; }
+        .good { background: #d1fae5; color: #065f46; }
+        .bad { background: #fee2e2; color: #991b1b; }
+        .summary-stats { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+        .stat-card { background: #f1f5f9; border-radius: 20px; padding: 12px 24px; text-align: center; flex: 1; }
+        .stat-number { font-size: 28px; font-weight: 800; }
+        .import-area { border: 2px dashed #cbd5e1; border-radius: 20px; padding: 20px; text-align: center; background: #fefce8; margin-top: 16px; }
+        .footer { text-align: center; color: #475569; margin-top: 20px; }
+        @media (max-width: 700px) { .form-row { flex-direction: column; } }
     </style>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
 </head>
 <body>
-<h1>📊 Мониторинг конкурентов</h1>
-<div id="status">Загрузка...</div>
+<div class="app">
+    <h1>📊 Мониторинг конкурентов (общая база)</h1>
+    <p style="color:#334155">Все менеджеры видят актуальные цены и могут их редактировать</p>
 
-<div class="card">
-    <h3>📁 Проекты и модели</h3>
-    <div id="projectsPanel">Загрузите Excel/CSV с моделями</div>
-</div>
+    <div class="managers-row" id="managersRow"></div>
 
-<div class="card">
-    <h3>💰 Редактор цен</h3>
-    <label>Менеджер: <select id="managerSelect"></select></label>
-    <label>Проект: <select id="projectSelect"></select></label>
-    <label>Модель: <select id="modelSelect"></select></label>
-    <input type="number" id="ourPrice" placeholder="Наша цена">
-    <input type="number" id="comp1" placeholder="Конкурент 1">
-    <input type="number" id="comp2" placeholder="Конкурент 2">
-    <input type="number" id="comp3" placeholder="Конкурент 3">
-    <button id="saveBtn">Сохранить</button>
-</div>
+    <div class="card">
+        <h2>⚙️ Управление</h2>
+        <div class="import-area">
+            <strong>📤 Загрузить структуру (Excel или CSV) — ДОБАВЛЯЕТ модели в общую базу</strong><br>
+            <small>Формат: колонка A = Менеджер, колонка B = Проект, колонка C = Модель</small><br>
+            <input type="file" id="uploadHits" accept=".xlsx,.xls,.csv,.xlsm" style="margin: 12px auto; width: auto; display: inline-block;">
+            <button id="importHitsBtn" style="background:#0f3b2c;">Загрузить и добавить</button>
+            <button id="resetHitsBtn" class="btn-secondary" style="background:#475569; margin-left:8px;">Сбросить все проекты</button>
+            <div class="template-download" style="margin-top:12px;">
+                📥 <a id="downloadTemplateBtn" style="cursor:pointer; color:#2563eb;">Скачать шаблон (CSV)</a>
+            </div>
+            <div id="importStatus" style="margin-top: 8px; font-size: 12px;"></div>
+        </div>
+        <div style="margin-top: 16px;">
+            <strong>📤 Данные синхронизируются с Google Sheets</strong><br>
+            <span id="syncStatus">🟢 Подключение...</span>
+        </div>
+    </div>
 
-<div class="card">
-    <h3>📈 Общий отчёт</h3>
-    <table id="summaryTable"><thead><tr><th>Менеджер</th><th>Проект</th><th>Модель</th><th>Наша цена</th><th>Средняя конкурентов</th><th>Разница</th></tr></thead><tbody></tbody></table>
-</div>
+    <div class="card">
+        <h2>📁 Проекты <span id="projectCount"></span></h2>
+        <div class="subprojects-row" id="subprojectsRow"></div>
+    </div>
 
-<div class="card">
-    <h3>📤 Загрузить структуру (Excel/CSV)</h3>
-    <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
-    <button id="uploadBtn">Добавить модели</button>
-    <button id="resetBtn">Сбросить все проекты</button>
-    <hr>
-    <a id="downloadTemplate" href="#">Скачать шаблон CSV</a>
+    <div class="card">
+        <h2 id="managerTitle">👤 Ильяс</h2>
+        <div class="form-row">
+            <div class="input-group"><label>📌 Модель</label><select id="modelSelect"></select></div>
+            <div class="input-group"><label>💰 Наша цена (₽)</label><input type="number" id="ourPrice" step="1"></div>
+            <div class="input-group"><label>🏪 Конкурент 1</label><input type="number" id="comp1" step="1"></div>
+            <div class="input-group"><label>🏪 Конкурент 2</label><input type="number" id="comp2" step="1"></div>
+            <div class="input-group"><label>🏪 Конкурент 3</label><input type="number" id="comp3" step="1"></div>
+            <div class="input-group"><button id="saveBtn">💾 Сохранить</button></div>
+        </div>
+        <div id="autoDiff" style="font-size:13px; background:#f1f5f9; padding:10px; border-radius:14px;"></div>
+    </div>
+
+    <div class="card">
+        <h2>📋 Модели проекта <span id="currentProjectName"></span></h2>
+        <div style="overflow-x:auto; max-height:500px;">
+            <table id="managerTable"><thead><tr><th>Модель</th><th>Наша цена</th><th>К1</th><th>К2</th><th>К3</th><th>% К1</th><th>% К2</th><th>% К3</th><th></th></tr></thead><tbody id="managerTableBody"></tbody></td>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>🏆 ОБЩИЙ ОТЧЁТ (все менеджеры)</h2>
+        <div class="summary-stats" id="summaryStats"></div>
+        <div style="overflow-x:auto; max-height:400px;">
+            <table id="summaryTable"><thead><tr><th>Менеджер</th><th>Проект</th><th>Модель</th><th>Наша цена</th><th>Средняя конкурентов</th><th>Разница %</th><th>Оценка</th></tr></thead><tbody id="summaryBody"></tbody></table>
+        </div>
+    </div>
+    <div class="footer">🔄 Все данные (структура и цены) хранятся в общих Google Sheets</div>
 </div>
 
 <script>
-    // ========== НАСТРОЙКА ==========
-    const API_URL = "https://script.google.com/macros/s/AKfycbyD1qPYPUslIB8NuKqUNKsBQHHE1xb0IgtO2fcVgDl75JUI0QcyvqpBwqo8HjwgcvfIAw/exec";   // СЮДА ВСТАВЬТЕ ВАШ URL ИЗ APPS SCRIPT
-    const MANAGERS = ["Стас", "Оля", "Ильяс", "Игорь"];
-
-    let projectModels = {};   // { manager: { project: [model1, model2] } }
-    let priceData = {};       // { manager: { project: { model: { ourPrice, comp1, comp2, comp3 } } } }
+    const API_URL = "https://script.google.com/macros/s/AKfycbzJCM2PPEpqVaj57E2hVd1UYVYuCoLhyZjAhxTAvIkXxZ5-NfeQxrmzy-gKs-w9MDvLOA/exec";  // ЗАМЕНИТЕ НА РЕАЛЬНЫЙ
+    const MANAGERS_LIST = ["Стас", "Оля", "Ильяс", "Игорь"];
+    
+    let projectModels = {};   // менеджер -> проект -> список моделей
+    let priceData = {};       // менеджер -> проект -> модель -> { ourPrice, comp1, comp2, comp3 }
     let currentManager = "Стас";
     let currentProject = "";
 
-    // ========== ЗАГРУЗКА ДАННЫХ ==========
-    async function loadAllData() {
+    // Загрузка данных из Google Sheets (цены + структура)
+    async function loadDataFromSheet() {
         try {
-            const res = await fetch(API_URL);
-            const data = await res.json();
-            // Обработка структуры (игнорируем заголовок)
-            const structRows = data.structure || [];
-            const newModels = {};
-            for (let mgr of MANAGERS) newModels[mgr] = {};
-            for (let i = 1; i < structRows.length; i++) {
-                const row = structRows[i];
-                if (row.length >= 3 && row[0] && row[1] && row[2]) {
-                    const mgr = row[0];
-                    const proj = row[1];
-                    const model = row[2];
-                    if (!newModels[mgr][proj]) newModels[mgr][proj] = [];
-                    if (!newModels[mgr][proj].includes(model)) newModels[mgr][proj].push(model);
+            const response = await fetch(API_URL);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const data = await response.json();
+            // Обработка структуры
+            if (data.structure && data.structure.length > 1) {
+                let newModels = {};
+                for (let mgr of MANAGERS_LIST) newModels[mgr] = {};
+                for (let i = 1; i < data.structure.length; i++) {
+                    const row = data.structure[i];
+                    if (row.length >= 3 && row[0] && row[1] && row[2]) {
+                        let mgr = row[0];
+                        let proj = row[1];
+                        let model = row[2];
+                        if (!newModels[mgr][proj]) newModels[mgr][proj] = [];
+                        if (!newModels[mgr][proj].includes(model)) newModels[mgr][proj].push(model);
+                    }
                 }
-            }
-            // Сортируем модели
-            for (let mgr in newModels) {
-                for (let proj in newModels[mgr]) {
-                    newModels[mgr][proj].sort();
+                // сортировка моделей
+                for (let mgr in newModels) {
+                    for (let proj in newModels[mgr]) {
+                        newModels[mgr][proj].sort();
+                    }
                 }
+                projectModels = newModels;
             }
-            projectModels = newModels;
-
-            // Обработка цен (игнорируем заголовок)
-            const priceRows = data.prices || [];
-            const newPrices = {};
-            for (let mgr of MANAGERS) newPrices[mgr] = {};
-            for (let i = 1; i < priceRows.length; i++) {
-                const row = priceRows[i];
-                if (row.length >= 7 && row[0] && row[1] && row[2]) {
-                    const mgr = row[0];
-                    const proj = row[1];
-                    const model = row[2];
-                    const ourPrice = row[3] ? Number(row[3]) : "";
-                    const comp1 = row[4] ? Number(row[4]) : "";
-                    const comp2 = row[5] ? Number(row[5]) : "";
-                    const comp3 = row[6] ? Number(row[6]) : "";
-                    if (!newPrices[mgr][proj]) newPrices[mgr][proj] = {};
-                    newPrices[mgr][proj][model] = { ourPrice, comp1, comp2, comp3 };
+            // Обработка цен
+            if (data.prices && data.prices.length > 1) {
+                let newPrices = {};
+                for (let mgr of MANAGERS_LIST) newPrices[mgr] = {};
+                for (let i = 1; i < data.prices.length; i++) {
+                    const row = data.prices[i];
+                    if (row.length >= 7 && row[0] && row[1] && row[2]) {
+                        let mgr = row[0];
+                        let proj = row[1];
+                        let model = row[2];
+                        if (!newPrices[mgr][proj]) newPrices[mgr][proj] = {};
+                        newPrices[mgr][proj][model] = {
+                            ourPrice: row[3] ? Number(row[3]) : "",
+                            comp1: row[4] ? Number(row[4]) : "",
+                            comp2: row[5] ? Number(row[5]) : "",
+                            comp3: row[6] ? Number(row[6]) : ""
+                        };
+                    }
                 }
+                priceData = newPrices;
             }
-            priceData = newPrices;
-
-            document.getElementById('status').innerHTML = "✅ Данные загружены";
-            renderUI();
-        } catch (err) {
-            console.error(err);
-            document.getElementById('status').innerHTML = "❌ Ошибка загрузки: " + err.message;
+            document.getElementById('syncStatus').innerHTML = "🟢 Данные загружены";
+            renderAll();
+        } catch(e) {
+            console.error(e);
+            document.getElementById('syncStatus').innerHTML = "🔴 Ошибка загрузки. Проверьте авторизацию и URL скрипта.";
         }
     }
 
-    // ========== СОХРАНЕНИЕ ЦЕНЫ ==========
-    async function savePrice(manager, project, model, ourPrice, comp1, comp2, comp3) {
-        const payload = {
-            prices: [{
-                manager, project, model,
-                ourPrice: ourPrice === "" ? "" : Number(ourPrice),
-                comp1: comp1 === "" ? "" : Number(comp1),
-                comp2: comp2 === "" ? "" : Number(comp2),
-                comp3: comp3 === "" ? "" : Number(comp3),
-                user: localStorage.getItem("userName") || "Аноним"
-            }]
-        };
+    // Сохранение цены (одна запись)
+    async function savePriceToSheet(manager, project, model, ourPrice, comp1, comp2, comp3) {
         try {
-            const res = await fetch(API_URL, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
+            const payload = {
+                prices: [{
+                    manager, project, model,
+                    ourPrice: ourPrice === '' ? '' : Number(ourPrice),
+                    comp1: comp1 === '' ? '' : Number(comp1),
+                    comp2: comp2 === '' ? '' : Number(comp2),
+                    comp3: comp3 === '' ? '' : Number(comp3),
+                    user: localStorage.getItem('userName') || 'anonymous'
+                }]
+            };
+            const response = await fetch(API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
-            const result = await res.json();
-            if (result.status === "ok") {
-                await loadAllData();
+            const result = await response.json();
+            if (result.status === 'ok') {
+                await loadDataFromSheet();
             } else {
-                alert("Ошибка сохранения: " + result.message);
+                alert('Ошибка сохранения: ' + result.message);
             }
-        } catch (err) {
-            alert("Ошибка сети: " + err.message);
+        } catch(e) {
+            alert('Ошибка соединения: ' + e.message);
         }
     }
 
-    // ========== СОХРАНЕНИЕ ВСЕЙ СТРУКТУРЫ ==========
+    // Сохранение всей структуры в Google Sheets (синхронизация)
     async function saveStructureToSheet() {
-        const structList = [];
-        for (let mgr of MANAGERS) {
+        const structureList = [];
+        for (let mgr of MANAGERS_LIST) {
             for (let proj in projectModels[mgr]) {
                 for (let model of projectModels[mgr][proj]) {
-                    structList.push({ manager: mgr, project: proj, model: model });
+                    structureList.push({ manager: mgr, project: proj, model: model });
                 }
             }
         }
-        const payload = { structure: structList };
         try {
-            await fetch(API_URL, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload)
+            const response = await fetch(API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ structure: structureList })
             });
-        } catch (err) {
-            console.error(err);
+            const result = await response.json();
+            if (result.status !== 'ok') {
+                console.error('Ошибка сохранения структуры');
+            }
+        } catch(e) {
+            console.error(e);
         }
     }
 
-    // ========== ДОБАВЛЕНИЕ МОДЕЛЕЙ ИЗ ФАЙЛА ==========
-    function addModelsFromFile(file) {
+    // Добавление моделей из файла (с отправкой на сервер)
+    async function addModelsFromFile(file) {
         const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
-        const processRows = (rows) => {
+        const readFile = (callback) => {
+            if (isExcel) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+                    callback(rows);
+                };
+                reader.readAsArrayBuffer(file);
+            } else {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const text = e.target.result;
+                    const lines = text.split(/\r?\n/);
+                    const rows = lines.map(line => {
+                        let parts;
+                        if (line.includes('\t')) parts = line.split('\t');
+                        else if (line.includes(',')) parts = line.split(',');
+                        else if (line.includes(';')) parts = line.split(';');
+                        else parts = [line];
+                        return parts;
+                    });
+                    callback(rows);
+                };
+                reader.readAsText(file, 'UTF-8');
+            }
+        };
+        readFile(async (rows) => {
             let startRow = 0;
-            if (rows.length && rows[0][0] && (String(rows[0][0]).toLowerCase().includes('менеджер') || String(rows[0][1]).toLowerCase().includes('проект'))) {
+            if (rows.length > 0 && rows[0][0] && (String(rows[0][0]).toLowerCase().includes('менеджер') || String(rows[0][1]).toLowerCase().includes('проект'))) {
                 startRow = 1;
             }
-            let added = 0;
+            let newModelsCount = 0;
+            let updatedModels = JSON.parse(JSON.stringify(projectModels));
             for (let i = startRow; i < rows.length; i++) {
                 const row = rows[i];
                 if (row.length >= 3 && row[0] && row[1] && row[2]) {
                     let mgr = String(row[0]).trim();
                     let proj = String(row[1]).trim();
                     let model = String(row[2]).trim();
-                    if (MANAGERS.includes(mgr) && proj && model) {
-                        if (!projectModels[mgr][proj]) projectModels[mgr][proj] = [];
-                        if (!projectModels[mgr][proj].includes(model)) {
-                            projectModels[mgr][proj].push(model);
-                            added++;
+                    if (MANAGERS_LIST.includes(mgr) && proj && model) {
+                        if (!updatedModels[mgr][proj]) updatedModels[mgr][proj] = [];
+                        if (!updatedModels[mgr][proj].includes(model)) {
+                            updatedModels[mgr][proj].push(model);
+                            newModelsCount++;
                         }
                     }
                 }
             }
-            if (added > 0) {
-                // Сортировка
-                for (let mgr in projectModels) {
-                    for (let proj in projectModels[mgr]) {
-                        projectModels[mgr][proj].sort();
-                    }
-                }
-                saveStructureToSheet().then(() => loadAllData());
-                document.getElementById('status').innerHTML = `✅ Добавлено ${added} моделей`;
-            } else {
-                alert("Новых моделей не найдено");
+            if (newModelsCount === 0) {
+                alert("Нет новых моделей для добавления.");
+                return;
             }
-        };
-
-        if (isExcel) {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                const data = new Uint8Array(e.target.result);
-                const workbook = XLSX.read(data, { type: 'array' });
-                const sheet = workbook.Sheets[workbook.SheetNames[0]];
-                const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
-                processRows(rows);
-            };
-            reader.readAsArrayBuffer(file);
-        } else {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                const text = e.target.result;
-                const lines = text.split(/\r?\n/);
-                const rows = lines.map(line => line.split(/[,\t;]/).map(cell => cell.trim()));
-                processRows(rows);
-            };
-            reader.readAsText(file, "UTF-8");
-        }
+            // Сортируем модели
+            for (let mgr in updatedModels) {
+                for (let proj in updatedModels[mgr]) {
+                    updatedModels[mgr][proj].sort();
+                }
+            }
+            projectModels = updatedModels;
+            await saveStructureToSheet();  // отправляем обновлённую структуру в Google Sheets
+            await loadDataFromSheet();     // перезагружаем всё (чтобы синхронизировать цены)
+            const statusDiv = document.getElementById('importStatus');
+            statusDiv.innerHTML = `✅ Добавлено ${newModelsCount} моделей в общую базу!`;
+            statusDiv.style.color = "#2d6a4f";
+            setTimeout(() => { statusDiv.innerHTML = ''; }, 3000);
+        });
     }
 
+    // Полный сброс структуры (очистка)
     async function resetAllProjects() {
-        if (confirm("Удалить все проекты и модели для всех менеджеров?")) {
-            for (let mgr of MANAGERS) projectModels[mgr] = {};
+        if (confirm("⚠️ ВНИМАНИЕ! Это удалит ВСЕ проекты и модели для всех менеджеров. Цены останутся, но без структуры вы их не увидите. Продолжить?")) {
+            for (let mgr of MANAGERS_LIST) projectModels[mgr] = {};
             await saveStructureToSheet();
-            await loadAllData();
+            await loadDataFromSheet();
+            document.getElementById('importStatus').innerHTML = "🗑 Все проекты удалены.";
+            setTimeout(() => document.getElementById('importStatus').innerHTML = '', 3000);
         }
     }
 
-    // ========== ОТРИСОВКА ИНТЕРФЕЙСА ==========
-    function renderUI() {
-        // Выпадающий список менеджеров
-        const mgrSelect = document.getElementById('managerSelect');
-        mgrSelect.innerHTML = "";
-        for (let mgr of MANAGERS) {
-            const opt = document.createElement('option');
-            opt.value = mgr;
-            opt.textContent = mgr;
-            mgrSelect.appendChild(opt);
-        }
-        mgrSelect.value = currentManager;
-        mgrSelect.onchange = () => {
-            currentManager = mgrSelect.value;
-            updateProjectSelect();
-            renderProjectsPanel();
-        };
-
-        function updateProjectSelect() {
-            const projSelect = document.getElementById('projectSelect');
-            const projects = Object.keys(projectModels[currentManager] || {});
-            projSelect.innerHTML = "";
-            if (projects.length === 0) {
-                projSelect.innerHTML = '<option>— нет проектов —</option>';
-                currentProject = "";
-                updateModelSelect();
-                return;
-            }
-            for (let p of projects) {
-                const opt = document.createElement('option');
-                opt.value = p;
-                opt.textContent = p;
-                projSelect.appendChild(opt);
-            }
-            if (!currentProject || !projects.includes(currentProject)) {
-                currentProject = projects[0];
-            }
-            projSelect.value = currentProject;
-            projSelect.onchange = () => {
-                currentProject = projSelect.value;
-                updateModelSelect();
-            };
-            updateModelSelect();
-        }
-
-        function updateModelSelect() {
-            const modelSelect = document.getElementById('modelSelect');
-            const models = (projectModels[currentManager]?.[currentProject]) || [];
-            modelSelect.innerHTML = "";
-            if (models.length === 0) {
-                modelSelect.innerHTML = '<option>— нет моделей —</option>';
-                return;
-            }
-            for (let m of models) {
-                const opt = document.createElement('option');
-                opt.value = m;
-                opt.textContent = m;
-                modelSelect.appendChild(opt);
-            }
-            // Загружаем цены для первой модели
-            if (models.length) {
-                loadPriceForModel(models[0]);
-                modelSelect.onchange = () => loadPriceForModel(modelSelect.value);
-            }
-        }
-
-        function loadPriceForModel(model) {
-            const entry = priceData[currentManager]?.[currentProject]?.[model] || { ourPrice: "", comp1: "", comp2: "", comp3: "" };
-            document.getElementById('ourPrice').value = entry.ourPrice;
-            document.getElementById('comp1').value = entry.comp1;
-            document.getElementById('comp2').value = entry.comp2;
-            document.getElementById('comp3').value = entry.comp3;
-        }
-
-        updateProjectSelect();
-
-        // Панель проектов (для наглядности)
-        function renderProjectsPanel() {
-            const container = document.getElementById('projectsPanel');
-            let html = "";
-            for (let mgr of MANAGERS) {
-                html += `<b>${mgr}</b><br>`;
-                const projects = projectModels[mgr] || {};
-                for (let proj in projects) {
-                    html += `&nbsp;&nbsp;📁 ${proj} (${projects[proj].length} моделей)<br>`;
-                }
-            }
-            container.innerHTML = html || "Нет проектов. Загрузите Excel/CSV.";
-        }
-        renderProjectsPanel();
-
-        // Общий отчёт
-        const rows = [];
-        for (let mgr of MANAGERS) {
-            for (let proj in projectModels[mgr]) {
-                for (let model of projectModels[mgr][proj]) {
-                    const entry = priceData[mgr]?.[proj]?.[model] || {};
-                    const our = entry.ourPrice;
-                    if (!our) continue;
-                    const comps = [entry.comp1, entry.comp2, entry.comp3].filter(v => v && v > 0);
-                    const avgComp = comps.length ? comps.reduce((a,b)=>a+b,0)/comps.length : our;
-                    const diff = ((our - avgComp) / avgComp * 100).toFixed(1);
-                    rows.push([mgr, proj, model, our, avgComp.toFixed(0), diff + "%"]);
+    // Вспомогательные функции (проценты, рендер)
+    function getEntry(manager, project, model) {
+        if(!priceData[manager]?.[project]?.[model]) return { ourPrice: '', comp1: '', comp2: '', comp3: '' };
+        return priceData[manager][project][model];
+    }
+    function percentDiff(our, comp) {
+        if(!our || our <= 0 || !comp || comp <= 0) return '';
+        return ((comp - our) / our * 100).toFixed(1);
+    }
+    function getRatingClass(p) {
+        if(p === '') return '';
+        let v = parseFloat(p);
+        if(v <= -5) return 'good';
+        if(v >= 5) return 'bad';
+        return 'neutral';
+    }
+    function getAllSummaryRows() {
+        let rows = [];
+        for(let mgr of MANAGERS_LIST) {
+            let projects = projectModels[mgr] || {};
+            for(let proj in projects) {
+                for(let model of projects[proj]) {
+                    let entry = getEntry(mgr, proj, model);
+                    let our = entry.ourPrice;
+                    if(!our || our === '') continue;
+                    let comps = [entry.comp1, entry.comp2, entry.comp3].filter(v => v && v > 0);
+                    let avgComp = comps.length ? comps.reduce((a,b)=>a+b,0)/comps.length : our;
+                    let diffPercent = ((our - avgComp) / avgComp) * 100;
+                    let rating = diffPercent <= -5 ? '🏆 Лучше' : (diffPercent <= 5 ? '✅ Норма' : '⚠️ Хуже');
+                    rows.push({ manager: mgr, project: proj, model, ourPrice: our, avgComp, diffPercent, rating });
                 }
             }
         }
-        const tbody = document.querySelector('#summaryTable tbody');
-        tbody.innerHTML = "";
-        for (let r of rows) {
-            const tr = tbody.insertRow();
-            r.forEach(cell => tr.insertCell().innerText = cell);
-        }
+        return rows;
     }
 
-    // ========== СОБЫТИЯ ==========
-    document.getElementById('saveBtn').onclick = () => {
-        const model = document.getElementById('modelSelect').value;
-        if (!currentProject || !model || model === "— нет моделей —") {
-            alert("Выберите проект и модель");
-            return;
+    // Отрисовка (аналогично предыдущей версии)
+    function renderManagersRow() {
+        let container = document.getElementById('managersRow');
+        container.innerHTML = '';
+        for(let mgr of MANAGERS_LIST) {
+            let card = document.createElement('div');
+            card.className = `manager-card ${currentManager === mgr ? 'active' : ''}`;
+            let projectsCount = Object.keys(projectModels[mgr] || {}).length;
+            let modelsCount = 0;
+            for(let proj in projectModels[mgr]) modelsCount += projectModels[mgr][proj].length;
+            card.innerHTML = `<div class="manager-name">${mgr}</div><div class="manager-projects">${projectsCount} проектов, ${modelsCount} моделей</div>`;
+            card.onclick = () => { currentManager = mgr; let first = Object.keys(projectModels[mgr] || {})[0] || ""; currentProject = first; renderAll(); };
+            container.appendChild(card);
         }
-        const our = document.getElementById('ourPrice').value;
-        const c1 = document.getElementById('comp1').value;
-        const c2 = document.getElementById('comp2').value;
-        const c3 = document.getElementById('comp3').value;
-        savePrice(currentManager, currentProject, model, our, c1, c2, c3);
-    };
-    document.getElementById('uploadBtn').onclick = () => {
-        const file = document.getElementById('fileInput').files[0];
-        if (!file) { alert("Выберите файл"); return; }
-        addModelsFromFile(file);
-        document.getElementById('fileInput').value = "";
-    };
-    document.getElementById('resetBtn').onclick = resetAllProjects;
-    document.getElementById('downloadTemplate').onclick = (e) => {
-        e.preventDefault();
-        const template = `Стас,Гига,HW50-BP1026\nСтас,Прайм,CP6\nОля,WB Bera,DS3200\nИльяс,ПТ Маркет,ПТ-100\nИгорь,Омега,Омега X1`;
-        const blob = new Blob(["\uFEFF" + template], { type: "text/csv" });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = "template_models.csv";
-        a.click();
-        URL.revokeObjectURL(a.href);
-    };
+    }
+    function renderSubprojects() {
+        let container = document.getElementById('subprojectsRow');
+        container.innerHTML = '';
+        let projects = projectModels[currentManager] || {};
+        let projectNames = Object.keys(projects);
+        document.getElementById('projectCount').innerHTML = `(${projectNames.length} проектов)`;
+        if(projectNames.length === 0) { container.innerHTML = '<span>Нет проектов. Загрузите через Excel.</span>'; return; }
+        if(!currentProject || !projects[currentProject]) currentProject = projectNames[0];
+        for(let proj of projectNames) {
+            let btn = document.createElement('button');
+            btn.innerHTML = `${proj} (${projects[proj].length})`;
+            btn.className = `subproject-btn ${currentProject === proj ? 'active' : ''}`;
+            btn.onclick = () => { currentProject = proj; renderAll(); };
+            container.appendChild(btn);
+        }
+    }
+    function renderManagerInput() {
+        document.getElementById('managerTitle').innerHTML = `👤 ${currentManager} — ${currentProject}`;
+        document.getElementById('currentProjectName').innerHTML = currentProject;
+        let select = document.getElementById('modelSelect');
+        let models = (projectModels[currentManager]?.[currentProject]) || [];
+        select.innerHTML = '';
+        for(let m of models) { let opt = document.createElement('option'); opt.value = m; opt.textContent = m; select.appendChild(opt); }
+        if(models.length) select.value = models[0];
+        select.onchange = () => loadFormFromModel();
+        loadFormFromModel();
+    }
+    function loadFormFromModel() {
+        let model = document.getElementById('modelSelect').value;
+        if(!model || !currentProject) return;
+        let entry = getEntry(currentManager, currentProject, model);
+        document.getElementById('ourPrice').value = entry.ourPrice !== '' ? entry.ourPrice : '';
+        document.getElementById('comp1').value = entry.comp1 !== '' ? entry.comp1 : '';
+        document.getElementById('comp2').value = entry.comp2 !== '' ? entry.comp2 : '';
+        document.getElementById('comp3').value = entry.comp3 !== '' ? entry.comp3 : '';
+        updateInlineDiff();
+    }
+    function updateInlineDiff() {
+        let our = parseFloat(document.getElementById('ourPrice').value);
+        let c1 = parseFloat(document.getElementById('comp1').value);
+        let c2 = parseFloat(document.getElementById('comp2').value);
+        let c3 = parseFloat(document.getElementById('comp3').value);
+        let html = '<div style="display:flex; gap:16px;">';
+        if(our && c1) html += `<span>📊 К1: ${percentDiff(our,c1)}%</span>`;
+        if(our && c2) html += `<span>📊 К2: ${percentDiff(our,c2)}%</span>`;
+        if(our && c3) html += `<span>📊 К3: ${percentDiff(our,c3)}%</span>`;
+        if(!our) html = '⬅️ Введите цену';
+        html += '</div>';
+        document.getElementById('autoDiff').innerHTML = html || '—';
+    }
+    function renderManagerTable() {
+        let tbody = document.getElementById('managerTableBody');
+        tbody.innerHTML = '';
+        let models = (projectModels[currentManager]?.[currentProject]) || [];
+        for(let model of models) {
+            let entry = getEntry(currentManager, currentProject, model);
+            let our = entry.ourPrice || '';
+            let c1 = entry.comp1 || '';
+            let c2 = entry.comp2 || '';
+            let c3 = entry.comp3 || '';
+            let p1 = percentDiff(our, c1);
+            let p2 = percentDiff(our, c2);
+            let p3 = percentDiff(our, c3);
+            let row = tbody.insertRow();
+            row.insertCell(0).innerText = model;
+            row.insertCell(1).innerText = our;
+            row.insertCell(2).innerText = c1;
+            row.insertCell(3).innerText = c2;
+            row.insertCell(4).innerText = c3;
+            let cell1 = row.insertCell(5); cell1.innerText = p1 ? p1+'%' : '-'; cell1.className = getRatingClass(p1);
+            let cell2 = row.insertCell(6); cell2.innerText = p2 ? p2+'%' : '-'; cell2.className = getRatingClass(p2);
+            let cell3 = row.insertCell(7); cell3.innerText = p3 ? p3+'%' : '-'; cell3.className = getRatingClass(p3);
+            let delBtn = document.createElement('button'); delBtn.textContent = '❌'; delBtn.style.background = '#ef4444';
+            delBtn.onclick = () => savePriceToSheet(currentManager, currentProject, model, '', '', '', '');
+            let cellDel = row.insertCell(8); cellDel.appendChild(delBtn);
+        }
+    }
+    function renderSummary() {
+        let rows = getAllSummaryRows();
+        let summaryBody = document.getElementById('summaryBody');
+        summaryBody.innerHTML = '';
+        let better=0, worse=0, total=0;
+        for(let r of rows) {
+            let tr = summaryBody.insertRow();
+            tr.insertCell(0).innerText = r.manager;
+            tr.insertCell(1).innerText = r.project;
+            tr.insertCell(2).innerText = r.model;
+            tr.insertCell(3).innerText = r.ourPrice;
+            tr.insertCell(4).innerText = r.avgComp.toFixed(0);
+            let diffCell = tr.insertCell(5);
+            diffCell.innerText = r.diffPercent.toFixed(1)+'%';
+            diffCell.className = r.diffPercent <= -5 ? 'good' : (r.diffPercent >= 5 ? 'bad' : 'neutral');
+            tr.insertCell(6).innerText = r.rating;
+            if(r.rating.includes('Лучше')) better++;
+            if(r.rating.includes('Хуже')) worse++;
+            total++;
+        }
+        document.getElementById('summaryStats').innerHTML = `
+            <div class="stat-card"><div class="stat-number">🏆 ${better}</div><div>Лучше рынка</div></div>
+            <div class="stat-card"><div class="stat-number">⚠️ ${worse}</div><div>Хуже рынка</div></div>
+            <div class="stat-card"><div class="stat-number">📊 ${total}</div><div>Всего моделей с ценами</div></div>
+            <div class="stat-card"><div class="stat-number">${total ? Math.round((better/total)*100) : 0}%</div><div>доля успеха</div></div>
+        `;
+    }
+    function renderAll() {
+        renderManagersRow();
+        renderSubprojects();
+        renderManagerInput();
+        renderManagerTable();
+        renderSummary();
+    }
 
-    // Запуск
+    // Экспорт в CSV
+    function exportToCSV() {
+        let rows = getAllSummaryRows();
+        let csvRows = [["Менеджер","Проект","Модель","Наша цена","Средняя конкурентов","Разница %","Оценка"]];
+        for(let r of rows) {
+            csvRows.push([r.manager, r.project, r.model, r.ourPrice, r.avgComp.toFixed(0), r.diffPercent.toFixed(1)+"%", r.rating]);
+        }
+        let csvContent = csvRows.map(row => row.join(",")).join("\n");
+        let blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
+        let link = document.createElement("a");
+        let url = URL.createObjectURL(blob);
+        link.href = url;
+        link.setAttribute("download", `monitoring_${new Date().toISOString().slice(0,19)}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    }
+
+    function downloadTemplate() {
+        let template = `Стас,Гига,HW50-BP1026
+Стас,Гига,HD70-A929E
+Оля,WB Bera,DS 3200 G
+Ильяс,ПТ Маркет,ПТ-100
+Игорь,Омега,Омега X1`;
+        const blob = new Blob(["\uFEFF" + template], { type: "text/csv;charset=utf-8" });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = 'template_hits.csv';
+        link.click();
+        URL.revokeObjectURL(link.href);
+    }
+
+    // Обработчики
+    document.getElementById('saveBtn').onclick = async () => {
+        let model = document.getElementById('modelSelect').value;
+        if(!model || !currentProject) return;
+        let our = document.getElementById('ourPrice').value;
+        let c1 = document.getElementById('comp1').value;
+        let c2 = document.getElementById('comp2').value;
+        let c3 = document.getElementById('comp3').value;
+        await savePriceToSheet(currentManager, currentProject, model, our, c1, c2, c3);
+    };
+    document.getElementById('importHitsBtn').onclick = () => {
+        const fileInput = document.getElementById('uploadHits');
+        if(fileInput.files.length) {
+            addModelsFromFile(fileInput.files[0]);
+            fileInput.value = '';
+        } else {
+            alert("Выберите Excel или CSV файл");
+        }
+    };
+    document.getElementById('resetHitsBtn').onclick = resetAllProjects;
+    document.getElementById('downloadTemplateBtn').onclick = downloadTemplate;
+    document.getElementById('exportCsvBtn').onclick = exportToCSV;
+
+    // Добавим кнопку экспорта, если её нет в интерфейсе (можно добавить вручную)
+    // Для удобства добавим кнопку экспорта в карточку "Управление"
+    const exportBtn = document.createElement('button');
+    exportBtn.textContent = '📎 Скачать результаты (CSV)';
+    exportBtn.style.background = '#1f7b4d';
+    exportBtn.onclick = exportToCSV;
+    document.querySelector('.import-area').insertBefore(exportBtn, document.getElementById('importStatus'));
+
     (async () => {
-        let name = prompt("Введите ваше имя:", "Менеджер");
-        if (name) localStorage.setItem("userName", name);
-        await loadAllData();
-        setInterval(loadAllData, 30000);
+        let userName = prompt("Введите ваше имя (для истории изменений):", "Менеджер");
+        if(userName) localStorage.setItem('userName', userName);
+        await loadDataFromSheet();
+        let firstProj = Object.keys(projectModels[currentManager] || {})[0] || "";
+        currentProject = firstProj;
+        renderAll();
+        setInterval(loadDataFromSheet, 30000);
     })();
 </script>
 </body>
